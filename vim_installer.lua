@@ -1,6 +1,6 @@
 local DEFAULT_BRANCH = "main"
 local INSTALLER_VERSION = "0.3"
-local COMPRESSED_URL = "https://minater247.github.io/CCVim/"
+local COMPRESSED_URL = "https://LordHerdier.github.io/CCVim/"
 local MANIFEST = "nvim.idx"
 local VERSION_FILE = ".version"
 local PREFS_FILE = ".installer_prefs"
@@ -70,7 +70,7 @@ local function writeFile(path, data, mode)
 end
 
 local function baseUrl(branch)
-    return "https://raw.githubusercontent.com/Minater247/CCVim/refs/heads/" .. branch .. "/"
+    return "https://raw.githubusercontent.com/LordHerdier/CCVim/refs/heads/" .. branch .. "/"
 end
 
 local function parseVersionFile(text)
