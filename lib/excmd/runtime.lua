@@ -52,6 +52,9 @@ local COMPILED_SCRIPT_CACHE_SIZE = 0
 local COMPILED_SCRIPT_CACHE_MAX = 256
 local unpack_fn = table.unpack or unpack
 local EMPTY_ARGS = {}
+-- Helper functions live in one table: CC:Tweaked's Lua counts locals across
+-- nested functions toward the 200 limit, so too many top-level locals break loading.
+local Helpers = {}
 
 local function runtime_undo_batch_begin()
     runtime_undo_batch_buffers = {}
@@ -2026,14 +2029,14 @@ local COMMAND_MODIFIER_SPECS = {
     botright = { split_location = "botright" },
 }
 
-local function _to_string_simple(v)
+function Helpers._to_string_simple(v)
     local t = type(v)
     if t == "nil" then return "v:null" end
     if t == "boolean" then return v and "true" or "false" end
     return tostring(v)
 end
 
-local function _scan_range_prefix(text, line_count, current_line, buffer)
+function Helpers._scan_range_prefix(text, line_count, current_line, buffer)
     local i, n = 1, #text
     local function skip_ws()
         while i <= n and text:sub(i, i):match("%s") do
@@ -2103,7 +2106,7 @@ local function _scan_range_prefix(text, line_count, current_line, buffer)
     return l1, l2, true, i, kind1, false
 end
 
-local function _cursor_parse_head(cursor, win)
+function Helpers._cursor_parse_head(cursor, win)
     local line_count = win.buffer:line_count(true)
     if line_count < 1 then
         line_count = 1
@@ -2112,7 +2115,7 @@ local function _cursor_parse_head(cursor, win)
     while text:sub(1, 1) == ":" do
         text = lstrip(text:sub(2))
     end
-    local l1, l2, has_range, pos = _scan_range_prefix(text, line_count, win.cursory, win.buffer)
+    local l1, l2, has_range, pos = Helpers._scan_range_prefix(text, line_count, win.cursory, win.buffer)
     if has_range then
         text = text:sub(pos)
     end
@@ -2126,7 +2129,7 @@ end
 
 function Runtime:call_statement(fn)
     local win = windows[curwin]
-    local first, last, ranged = _scan_range_prefix(
+    local first, last, ranged = Helpers._scan_range_prefix(
         tostring((self.exec_cursor and self.exec_cursor.text) or ""),
         win.buffer:line_count(true),
         win.cursory,
@@ -2142,7 +2145,7 @@ function Runtime:call_statement(fn)
     self.call_range = nil
 end
 
-local function _structured_range_from_spec(spec)
+function Helpers._structured_range_from_spec(spec)
     if type(spec) ~= "table" then
         return nil, nil, false, nil
     end
@@ -2183,8 +2186,8 @@ local function _structured_range_from_spec(spec)
     return nil, nil, false, "Invalid 'range'"
 end
 
-local function _build_cmd_context(cursor, win, spec)
-    local raw_cmd, raw_l1, raw_l2, has_raw_range = _cursor_parse_head(cursor, win)
+function Helpers._build_cmd_context(cursor, win, spec)
+    local raw_cmd, raw_l1, raw_l2, has_raw_range = Helpers._cursor_parse_head(cursor, win)
     local name = tostring((spec and (spec.dispatch or spec.lname or spec.name)) or raw_cmd or ""):lower()
     local cmd_spec = get_command_spec(name)
     local addr_mode = cmd_spec and (((spec and spec.structured) and cmd_spec.structured_addr) or cmd_spec.addr)
@@ -2228,7 +2231,7 @@ local function _build_cmd_context(cursor, win, spec)
             end
         end
 
-        local line1, line2, has_structured_range, range_err = _structured_range_from_spec(spec)
+        local line1, line2, has_structured_range, range_err = Helpers._structured_range_from_spec(spec)
         if range_err then
             error(range_err)
         end
@@ -2250,7 +2253,7 @@ local function _build_cmd_context(cursor, win, spec)
     return ctx
 end
 
-local function _parse_copy_move_target(raw, win)
+function Helpers._parse_copy_move_target(raw, win)
     local text = lstrip(tostring(raw or ""))
     if text == "" then
         return nil, Error(16)
@@ -2283,12 +2286,12 @@ local function _parse_copy_move_target(raw, win)
     return target, nil
 end
 
-local function _sorted_tabnrs()
+function Helpers._sorted_tabnrs()
     return TblUtils.sorted_keys(tabpages)
 end
 
-local function _tab_switch_target(raw, step)
-    local ids = _sorted_tabnrs()
+function Helpers._tab_switch_target(raw, step)
+    local ids = Helpers._sorted_tabnrs()
     local text = strip(raw)
     if text == "" then
         local current_idx = 1
@@ -2312,7 +2315,7 @@ local function _tab_switch_target(raw, step)
     return target, nil
 end
 
-local function _switch_to_tab(target)
+function Helpers._switch_to_tab(target)
     if target == curtp then
         return true
     end
@@ -2328,7 +2331,7 @@ local function _switch_to_tab(target)
     return true
 end
 
-local function _delete_suffix_mode(raw_cmd)
+function Helpers._delete_suffix_mode(raw_cmd)
     if not raw_cmd or #raw_cmd < 2 then
         return nil
     end
@@ -2347,7 +2350,7 @@ local function _delete_suffix_mode(raw_cmd)
     return nil
 end
 
-local function _parse_delete_args(raw)
+function Helpers._parse_delete_args(raw)
     local tokens = split_ws(raw)
     local reg = '"'
     local explicit_reg = false
@@ -2380,7 +2383,7 @@ local function _parse_delete_args(raw)
     return reg, explicit_reg, count, nil
 end
 
-local function _store_deleted_lines(reg, explicit_reg, lines)
+function Helpers._store_deleted_lines(reg, explicit_reg, lines)
     local function rotate_numbered()
         for i = 9, 2, -1 do
             registers[i] = registers[i - 1]
@@ -2423,7 +2426,7 @@ local function _store_deleted_lines(reg, explicit_reg, lines)
     end
 end
 
-local function _put_register_key(reg)
+function Helpers._put_register_key(reg)
     if reg == '"' then
         return "unnamed"
     end
@@ -2436,7 +2439,7 @@ local function _put_register_key(reg)
     return reg
 end
 
-local function _copy_lines_from_list(src)
+function Helpers._copy_lines_from_list(src)
     local out = {}
     for i = 1, #src do
         out[#out + 1] = tostring(src[i] or "")
@@ -2444,7 +2447,7 @@ local function _copy_lines_from_list(src)
     return out
 end
 
-local function _split_text_lines(text)
+function Helpers._split_text_lines(text)
     if text == "" then
         return { "" }
     end
@@ -2462,7 +2465,7 @@ local function _split_text_lines(text)
     return out
 end
 
-local function _parse_delimited_part(raw, start_idx, delim)
+function Helpers._parse_delimited_part(raw, start_idx, delim)
     local out = {}
     local i = start_idx
     local n = #raw
@@ -2494,14 +2497,14 @@ local function _parse_delimited_part(raw, start_idx, delim)
     return nil, start_idx, Error(474, raw)
 end
 
-local function _parse_global_pattern_and_cmd(raw)
+function Helpers._parse_global_pattern_and_cmd(raw)
     local s = lstrip(tostring(raw or ""))
     local delim = s:sub(1, 1)
     if delim == "" or delim:match("[%w%s]") or delim == "\\" or delim == '"' or delim == "|" or delim == "!" then
         return nil, nil, Error(474, raw)
     end
 
-    local pat, next_idx, perr = _parse_delimited_part(s, 2, delim)
+    local pat, next_idx, perr = Helpers._parse_delimited_part(s, 2, delim)
     if perr then
         return nil, nil, perr
     end
@@ -2523,7 +2526,7 @@ local SUB_FLAG_ALLOWED = {
     r = true,
 }
 
-local function _parse_substitute_flag_count(tail)
+function Helpers._parse_substitute_flag_count(tail)
     local s = lstrip(tostring(tail or ""))
     local flags = {}
     local i = 1
@@ -2558,7 +2561,7 @@ local function _parse_substitute_flag_count(tail)
     return table.concat(flags), count, nil
 end
 
-local function _parse_substitute_args(raw)
+function Helpers._parse_substitute_args(raw)
     local s = lstrip(tostring(raw or ""))
     if s == "" then
         return {
@@ -2576,7 +2579,7 @@ local function _parse_substitute_args(raw)
 
     local is_delimiter = (not delim:match("[%w%s]")) and delim ~= "\\" and delim ~= '"' and delim ~= "|"
     if not is_delimiter then
-        local rep_flags, rep_count, ferr = _parse_substitute_flag_count(s)
+        local rep_flags, rep_count, ferr = Helpers._parse_substitute_flag_count(s)
         if ferr then
             return nil, ferr
         end
@@ -2590,19 +2593,19 @@ local function _parse_substitute_args(raw)
         }, nil
     end
 
-    local pattern, after_pat, perr = _parse_delimited_part(s, 2, delim)
+    local pattern, after_pat, perr = Helpers._parse_delimited_part(s, 2, delim)
     if perr then
         pattern = s:sub(2)
         after_pat = #s + 1
     end
 
-    local replacement, after_repl, rerr = _parse_delimited_part(s, after_pat, delim)
+    local replacement, after_repl, rerr = Helpers._parse_delimited_part(s, after_pat, delim)
     if rerr then
         replacement = s:sub(after_pat)
         after_repl = #s + 1
     end
 
-    local flag_str, count, ferr = _parse_substitute_flag_count(s:sub(after_repl))
+    local flag_str, count, ferr = Helpers._parse_substitute_flag_count(s:sub(after_repl))
     if ferr then
         return nil, ferr
     end
@@ -2626,7 +2629,7 @@ local function _parse_substitute_args(raw)
     }, nil
 end
 
-local function _substitute_case_sensitive(flags)
+function Helpers._substitute_case_sensitive(flags)
     local case_sensitive = not truthy(Options.get("ignorecase"))
     for i = 1, #flags do
         local ch = flags:sub(i, i)
@@ -2639,7 +2642,7 @@ local function _substitute_case_sensitive(flags)
     return case_sensitive
 end
 
-local function _expand_substitute_replacement(replacement, match_text, caps)
+function Helpers._expand_substitute_replacement(replacement, match_text, caps)
     local out = {}
     local i = 1
     local n = #replacement
@@ -2685,7 +2688,7 @@ local function _expand_substitute_replacement(replacement, match_text, caps)
     return table.concat(out)
 end
 
-local function _substitute_line(compiled, text, replacement, case_sensitive, do_global)
+function Helpers._substitute_line(compiled, text, replacement, case_sensitive, do_global)
     local line = tostring(text or "")
     local out = {}
     local next_pos = 1
@@ -2707,7 +2710,7 @@ local function _substitute_line(compiled, text, replacement, case_sensitive, do_
         end
 
         local match_text = line:sub(s, e)
-        out[#out + 1] = _expand_substitute_replacement(replacement, match_text, caps)
+        out[#out + 1] = Helpers._expand_substitute_replacement(replacement, match_text, caps)
         subs = subs + 1
 
         if not do_global then
@@ -2730,7 +2733,7 @@ local function _substitute_line(compiled, text, replacement, case_sensitive, do_
     return table.concat(out), subs, nil
 end
 
-local function _read_put_register_lines(self, reg)
+function Helpers._read_put_register_lines(self, reg)
     if reg == "%" then
         return { tostring(windows[curwin].buffer.name or "") }, nil
     end
@@ -2749,32 +2752,32 @@ local function _read_put_register_lines(self, reg)
         return { tostring((cursor and cursor.text) or "") }, nil
     end
 
-    local key = _put_register_key(reg)
+    local key = Helpers._put_register_key(reg)
     local regval = registers[key]
     if regval == nil then
         return nil, Error(353, reg)
     end
 
     if type(regval) ~= "table" then
-        return _split_text_lines(tostring(regval)), nil
+        return Helpers._split_text_lines(tostring(regval)), nil
     end
 
     local kind = regval[1]
     local payload = regval[2]
     if (kind == "linewise" or kind == "inline") and type(payload) == "table" then
-        return _copy_lines_from_list(payload), nil
+        return Helpers._copy_lines_from_list(payload), nil
     end
     if kind == "charwise" and type(payload) == "string" then
-        return _split_text_lines(payload), nil
+        return Helpers._split_text_lines(payload), nil
     end
     if type(payload) == "table" then
-        return _copy_lines_from_list(payload), nil
+        return Helpers._copy_lines_from_list(payload), nil
     end
-    return _split_text_lines(tostring(payload or "")), nil
+    return Helpers._split_text_lines(tostring(payload or "")), nil
 end
 
 
-local function _file_display_name(name, bang)
+function Helpers._file_display_name(name, bang)
     local display = name
     if display == "" then
         return "[No Name]"
@@ -2793,10 +2796,10 @@ local function _file_display_name(name, bang)
     return display
 end
 
-local function _file_status_message(win, bang)
+function Helpers._file_status_message(win, bang)
     local buf = win.buffer
     local shortmess = tostring(Options.get("shortmess") or "")
-    local out = { '"' .. _file_display_name(buf.name, bang) .. '"' }
+    local out = { '"' .. Helpers._file_display_name(buf.name, bang) .. '"' }
     if Options.get("readonly", nil, buf) then
         out[#out + 1] = shortmess:find("r", 1, true) and "[RO]" or "[readonly]"
     end
@@ -2817,7 +2820,7 @@ local function _file_status_message(win, bang)
     return table.concat(out, " ")
 end
 
-local function _delete_list_text(line)
+function Helpers._delete_list_text(line)
     local text = tostring(line or "")
     local out = { ">" }
     local col = 2
@@ -2835,7 +2838,7 @@ local function _delete_list_text(line)
     return table.concat(out)
 end
 
-local function _delete_print_text(line)
+function Helpers._delete_print_text(line)
     local text = tostring(line or "")
     local out = {}
     local col = 1
@@ -2853,11 +2856,11 @@ local function _delete_print_text(line)
     return table.concat(out)
 end
 
-local function _csv_first(value)
+function Helpers._csv_first(value)
     return strip((tostring(value or ""):match("^([^,]+)") or ""))
 end
 
-local function _parse_redir_spec(raw)
+function Helpers._parse_redir_spec(raw)
     local s = strip(raw)
     if s == "" then
         return nil, Error(471)
@@ -2917,7 +2920,7 @@ local function _parse_redir_spec(raw)
     return nil, Error(474, raw)
 end
 
-local function _redir_register_key(reg)
+function Helpers._redir_register_key(reg)
     if reg == '"' then
         return "unnamed"
     end
@@ -2930,8 +2933,8 @@ local function _redir_register_key(reg)
     return reg
 end
 
-local function _redir_register_text(reg)
-    local key = _redir_register_key(reg)
+function Helpers._redir_register_text(reg)
+    local key = Helpers._redir_register_key(reg)
     local rv = registers[key]
     if rv == nil then
         return ""
@@ -2960,7 +2963,7 @@ local MAP_ARG_OPTIONS = {
     special = true,
 }
 
-local function _map_command_opts(opts, map_meta)
+function Helpers._map_command_opts(opts, map_meta)
     local out = map_meta and { map_meta = map_meta }
     if opts.buffer then
         out = out or {}
@@ -2974,7 +2977,7 @@ local function _map_command_opts(opts, map_meta)
     return out
 end
 
-local function _consume_map_options(raw)
+function Helpers._consume_map_options(raw)
     local opts = {}
     local i, n = 1, #raw
 
@@ -2999,8 +3002,8 @@ local function _consume_map_options(raw)
     return opts, raw:sub(i)
 end
 
-local function _parse_map_lhs_rhs(raw)
-    local opts, tail = _consume_map_options(raw)
+function Helpers._parse_map_lhs_rhs(raw)
+    local opts, tail = Helpers._consume_map_options(raw)
     tail = lstrip(tail)
     if tail == "" then return { lhs = nil, rhs = nil, opts = opts } end
     local lhs, rhs = tail:match("^(%S+)%s*(.*)$")
@@ -3013,8 +3016,8 @@ local function _parse_map_lhs_rhs(raw)
     return { lhs = lhs, rhs = rhs, opts = opts }
 end
 
-local function _parse_unmap_lhs(raw)
-    local opts, tail = _consume_map_options(raw)
+function Helpers._parse_unmap_lhs(raw)
+    local opts, tail = Helpers._consume_map_options(raw)
     tail = lstrip(tail)
     if tail == "" then
         return nil, Error(474, "Argument required")
@@ -3026,7 +3029,7 @@ local function _parse_unmap_lhs(raw)
     return lhs, nil, opts
 end
 
-local function _strtoseq_tolerant(s)
+function Helpers._strtoseq_tolerant(s)
     local seq = {}
     local i, n = 1, #s
 
@@ -3076,7 +3079,7 @@ local function _strtoseq_tolerant(s)
     return seq, nil
 end
 
-local function _strtoseq_normal_literal(s)
+function Helpers._strtoseq_normal_literal(s)
     local escaped = tostring(s or ""):gsub("<", "<lt>")
     local ok, seq = pcall(Key.strtoseq, escaped)
     if not ok then
@@ -3086,7 +3089,7 @@ local function _strtoseq_normal_literal(s)
 end
 
 
-local function _split_csv(s)
+function Helpers._split_csv(s)
     local t = {}
     for part in tostring(s or ""):gmatch("([^,]+)") do
         t[#t + 1] = strip(part)
@@ -3094,7 +3097,7 @@ local function _split_csv(s)
     return t
 end
 
-local function _is_event_spec(s)
+function Helpers._is_event_spec(s)
     if not s or s == "" then return false end
     if s == "*" then return true end
     for part in tostring(s):gmatch("([^,]+)") do
@@ -3106,16 +3109,16 @@ local function _is_event_spec(s)
     return true
 end
 
-local function _consume_autocmd_header(args)
+function Helpers._consume_autocmd_header(args)
     local i, n = 1, #args
     local group_name, group_id
     local group_specified = false
 
     local function _looks_like_group(tok, nexttok)
         if not tok then return false end
-        if _is_event_spec(tok) then return false end
+        if Helpers._is_event_spec(tok) then return false end
         if Autocmd.GetAugroupId(tok) then return true end
-        if nexttok and _is_event_spec(nexttok) then return true end
+        if nexttok and Helpers._is_event_spec(nexttok) then return true end
         return false
     end
 
@@ -3144,11 +3147,11 @@ local function _consume_autocmd_header(args)
         }
     end
     i = i + 1
-    local events = (events_raw == "*") and { "*" } or _split_csv(events_raw)
+    local events = (events_raw == "*") and { "*" } or Helpers._split_csv(events_raw)
 
     local patterns
     if i <= n and not args[i]:match("^%+%+") then
-        patterns = _split_csv(args[i])
+        patterns = Helpers._split_csv(args[i])
         i = i + 1
     end
 
@@ -3185,7 +3188,7 @@ local function _consume_autocmd_header(args)
 end
 
 
-local function _filetype_detection_on()
+function Helpers._filetype_detection_on()
     local gid = Autocmd.GetAugroupId("filetypedetect")
     if not gid then
         return false
@@ -3193,8 +3196,8 @@ local function _filetype_detection_on()
     return Autocmd.GroupHasAutocommands(gid)
 end
 
-local function _filetype_enable_detection()
-    if _filetype_detection_on() then
+function Helpers._filetype_enable_detection()
+    if Helpers._filetype_detection_on() then
         return true
     end
     local had = scopes.g.did_load_filetypes ~= nil
@@ -3212,7 +3215,7 @@ local function _filetype_enable_detection()
     return true
 end
 
-local function _filetype_disable_detection()
+function Helpers._filetype_disable_detection()
     local gid = Autocmd.GetAugroupId("filetypedetect")
     if gid then
         Autocmd.RemoveAutocommands(gid, nil, nil)
@@ -3220,7 +3223,7 @@ local function _filetype_disable_detection()
     return true
 end
 
-local function _filetype_enable_plugin()
+function Helpers._filetype_enable_plugin()
     local ok, err = ScriptSource.source_runtime("ftplugin.vim")
     if not ok then
         return err
@@ -3228,7 +3231,7 @@ local function _filetype_enable_plugin()
     return true
 end
 
-local function _filetype_disable_plugin()
+function Helpers._filetype_disable_plugin()
     local ok, err = ScriptSource.source_runtime("ftplugof.vim")
     if not ok then
         return err
@@ -3236,7 +3239,7 @@ local function _filetype_disable_plugin()
     return true
 end
 
-local function _filetype_enable_indent()
+function Helpers._filetype_enable_indent()
     local ok, err = ScriptSource.source_runtime("indent.vim")
     if not ok then
         return err
@@ -3244,7 +3247,7 @@ local function _filetype_enable_indent()
     return true
 end
 
-local function _filetype_disable_indent()
+function Helpers._filetype_disable_indent()
     local ok, err = ScriptSource.source_runtime("indoff.vim")
     if not ok then
         return err
@@ -3253,7 +3256,7 @@ local function _filetype_disable_indent()
 end
 
 
-local function _emit_highlight_listing(names)
+function Helpers._emit_highlight_listing(names)
     ExMsg.echo("")
     for i = 1, #names do
         local name = names[i]
@@ -3270,18 +3273,18 @@ local function _emit_highlight_listing(names)
     end
 end
 
-local function _colors_name_var()
+function Helpers._colors_name_var()
     local name = scopes._g and scopes._g.colors_name
     if type(name) == "string" and name ~= "" then
         return name
     end
 end
 
-local function _current_colorscheme_name()
-    return _colors_name_var() or "default"
+function Helpers._current_colorscheme_name()
+    return Helpers._colors_name_var() or "default"
 end
 
-local function _colorscheme_search_roots()
+function Helpers._colorscheme_search_roots()
     local roots = {}
     local seen = {}
 
@@ -3300,8 +3303,8 @@ local function _colorscheme_search_roots()
     return roots
 end
 
-local function _find_colorscheme_path(name)
-    local roots = _colorscheme_search_roots()
+function Helpers._find_colorscheme_path(name)
+    local roots = Helpers._colorscheme_search_roots()
     for _, ext in ipairs({ "vim", "lua" }) do
         for i = 1, #roots do
             local path = roots[i] .. "/colors/" .. name .. "." .. ext
@@ -3312,12 +3315,12 @@ local function _find_colorscheme_path(name)
     end
 end
 
-local function _load_colorscheme(name)
+function Helpers._load_colorscheme(name)
     if colorscheme_load_depth > 0 then
         error(Error(474, "Cannot use :colorscheme recursively"))
     end
 
-    local path = _find_colorscheme_path(name)
+    local path = Helpers._find_colorscheme_path(name)
     if not path then
         error(Error(185, name))
     end
@@ -3342,7 +3345,7 @@ local function _load_colorscheme(name)
         error(err)
     end
 
-    local loaded_name = _colors_name_var() or name
+    local loaded_name = Helpers._colors_name_var() or name
     Autocmd.Run("ColorScheme", { bufname = loaded_name, pattern = loaded_name })
     what_redraw["all"] = true
     need_redraw = true
@@ -3393,12 +3396,12 @@ function Runtime:put(argstr, bang, cmdctx)
         end
 
         if type(value) == "table" and not value.__call then
-            lines = _copy_lines_from_list(value)
+            lines = Helpers._copy_lines_from_list(value)
         else
-            lines = _split_text_lines(tostring(value or ""))
+            lines = Helpers._split_text_lines(tostring(value or ""))
         end
     else
-        local reg_lines, rerr = _read_put_register_lines(self, reg)
+        local reg_lines, rerr = Helpers._read_put_register_lines(self, reg)
         if rerr then
             return rerr
         end
@@ -3430,7 +3433,7 @@ end
 
 function Runtime:put_compiled(payload, bang, spec)
     local win = windows[curwin]
-    local cmdctx = _build_cmd_context(self:get_exec_cursor(), win, spec)
+    local cmdctx = Helpers._build_cmd_context(self:get_exec_cursor(), win, spec)
     local source = payload.source
     local lines
 
@@ -3444,13 +3447,13 @@ function Runtime:put_compiled(payload, bang, spec)
                 reg_default = "*"
             end
         end
-        local reg_lines, rerr = _read_put_register_lines(self, reg_default)
+        local reg_lines, rerr = Helpers._read_put_register_lines(self, reg_default)
         if rerr then
             error(rerr)
         end
         lines = reg_lines
     elseif source == "register" then
-        local reg_lines, rerr = _read_put_register_lines(self, payload.reg)
+        local reg_lines, rerr = Helpers._read_put_register_lines(self, payload.reg)
         if rerr then
             error(rerr)
         end
@@ -3467,9 +3470,9 @@ function Runtime:put_compiled(payload, bang, spec)
         end
 
         if type(value) == "table" and not value.__call then
-            lines = _copy_lines_from_list(value)
+            lines = Helpers._copy_lines_from_list(value)
         else
-            lines = _split_text_lines(tostring(value or ""))
+            lines = Helpers._split_text_lines(tostring(value or ""))
         end
     else
         error(Error(488, tostring(payload.raw or "")))
@@ -3498,7 +3501,7 @@ function Runtime:put_compiled(payload, bang, spec)
 end
 
 function Runtime:substitute(argstr, _bang, cmdctx)
-    local spec, perr = _parse_substitute_args(argstr)
+    local spec, perr = Helpers._parse_substitute_args(argstr)
     if perr then
         return perr
     end
@@ -3576,14 +3579,14 @@ function Runtime:substitute(argstr, _bang, cmdctx)
     end
     local suppress_not_found = flags:find("e", 1, true) ~= nil
     local count_only = flags:find("n", 1, true) ~= nil
-    local case_sensitive = _substitute_case_sensitive(flags)
+    local case_sensitive = Helpers._substitute_case_sensitive(flags)
 
     local new_lines = {}
     local changed = false
     local total_subs = 0
     for i = line1, line2 do
         local current = buf:get_line(i, true) or ""
-        local next_line, subs, lerr = _substitute_line(compiled, current, replacement, case_sensitive, do_global)
+        local next_line, subs, lerr = Helpers._substitute_line(compiled, current, replacement, case_sensitive, do_global)
         if lerr then
             return lerr
         end
@@ -3610,7 +3613,7 @@ function Runtime:substitute(argstr, _bang, cmdctx)
 end
 
 function Runtime:global(argstr, bang, cmdctx)
-    local pattern, cmd, perr = _parse_global_pattern_and_cmd(argstr)
+    local pattern, cmd, perr = Helpers._parse_global_pattern_and_cmd(argstr)
     if perr then
         return perr
     end
@@ -3778,7 +3781,7 @@ end
 
 function Runtime:define_autocmd(rest, bang)
     local args = type(rest) == "table" and (rest.args or rest) or split_ws(rest)
-    local H, err = _consume_autocmd_header(args)
+    local H, err = Helpers._consume_autocmd_header(args)
     if Error.IsError(err) then
         error(err)
     end
@@ -3976,7 +3979,7 @@ end
 function Runtime:filetype(argstr)
     local args = split_ws(argstr)
     if #args == 0 then
-        local detect = _filetype_detection_on() and "ON" or "OFF"
+        local detect = Helpers._filetype_detection_on() and "ON" or "OFF"
         local plugin = (scopes.g.did_load_ftplugin ~= nil) and "ON" or "OFF"
         local indent = (scopes.g.did_indent_on ~= nil) and "ON" or "OFF"
         ExMsg.echo("filetype detection:" .. detect .. "  plugin:" .. plugin .. "  indent:" .. indent)
@@ -3984,7 +3987,7 @@ function Runtime:filetype(argstr)
     end
 
     if #args == 1 and args[1]:lower() == "detect" then
-        local ok = _filetype_enable_detection()
+        local ok = Helpers._filetype_enable_detection()
         if Error.IsError(ok) then return ok end
         local buf = windows[curwin].buffer
         local ctx = { bufnr = buf.bufnr, bufname = buf.name }
@@ -4024,32 +4027,32 @@ function Runtime:filetype(argstr)
 
     if mode == "on" then
         if want_plugin or want_indent then
-            local ok = _filetype_enable_detection()
+            local ok = Helpers._filetype_enable_detection()
             if Error.IsError(ok) then return ok end
         end
         if want_plugin then
-            local ok = _filetype_enable_plugin()
+            local ok = Helpers._filetype_enable_plugin()
             if Error.IsError(ok) then return ok end
         end
         if want_indent then
-            local ok = _filetype_enable_indent()
+            local ok = Helpers._filetype_enable_indent()
             if Error.IsError(ok) then return ok end
         end
         if not want_plugin and not want_indent then
-            local ok = _filetype_enable_detection()
+            local ok = Helpers._filetype_enable_detection()
             if Error.IsError(ok) then return ok end
         end
     else
         if want_plugin then
-            local ok = _filetype_disable_plugin()
+            local ok = Helpers._filetype_disable_plugin()
             if Error.IsError(ok) then return ok end
         end
         if want_indent then
-            local ok = _filetype_disable_indent()
+            local ok = Helpers._filetype_disable_indent()
             if Error.IsError(ok) then return ok end
         end
         if not want_plugin and not want_indent then
-            local ok = _filetype_disable_detection()
+            local ok = Helpers._filetype_disable_detection()
             if Error.IsError(ok) then return ok end
         end
     end
@@ -4093,7 +4096,7 @@ function Runtime:invoke_compiled_command(spec)
     local qargs = tostring(spec.qargs or "")
     local bang = not not spec.bang
     local win = windows[curwin]
-    local cmdctx = _build_cmd_context(self:get_exec_cursor(), win, spec)
+    local cmdctx = Helpers._build_cmd_context(self:get_exec_cursor(), win, spec)
 
     if name == "" then
         if cmdctx.raw_cmd == nil and cmdctx.line2 ~= nil then
@@ -4180,7 +4183,7 @@ end
 
 function Runtime:invoke_compiled_builtin_command(dispatch_cmd, spec)
     local win = windows[curwin]
-    local cmdctx = _build_cmd_context(self:get_exec_cursor(), win, spec)
+    local cmdctx = Helpers._build_cmd_context(self:get_exec_cursor(), win, spec)
     local rv = self:_invoke_builtin(dispatch_cmd, spec.qargs, not not spec.bang, cmdctx)
     if rv == nil then return true end
     return rv
@@ -4433,19 +4436,19 @@ function Runtime.new(init_state, init_opts)
         local raw = strip(argstr)
 
         if spec.action == "clear" then
-            local opts = _consume_map_options(raw)
-            Command.clear_mappings(modes, _map_command_opts(opts))
+            local opts = Helpers._consume_map_options(raw)
+            Command.clear_mappings(modes, Helpers._map_command_opts(opts))
             return true
         end
 
         if spec.action == "unmap" then
-            local lhs, perr, opts = _parse_unmap_lhs(raw)
+            local lhs, perr, opts = Helpers._parse_unmap_lhs(raw)
             if perr then return perr end
             local lhs_expanded, serr = _expand_map_sid(lhs)
             if serr then return serr end
-            local lhs_seq, lerr = _strtoseq_tolerant(lhs_expanded)
+            local lhs_seq, lerr = Helpers._strtoseq_tolerant(lhs_expanded)
             if lerr then return lerr end
-            Command.unmap_keys(modes, lhs_seq, _map_command_opts(opts))
+            Command.unmap_keys(modes, lhs_seq, Helpers._map_command_opts(opts))
             return true
         end
 
@@ -4453,7 +4456,7 @@ function Runtime.new(init_state, init_opts)
             return true
         end
 
-        local parsed, perr = _parse_map_lhs_rhs(raw)
+        local parsed, perr = Helpers._parse_map_lhs_rhs(raw)
         if perr then return perr end
         if not parsed or not parsed.lhs or parsed.rhs == nil then
             return true
@@ -4464,10 +4467,10 @@ function Runtime.new(init_state, init_opts)
         local rhs_expanded, rserr = _expand_map_sid(parsed.rhs)
         if rserr then return rserr end
 
-        local lhs_seq, lerr = _strtoseq_tolerant(lhs_expanded)
+        local lhs_seq, lerr = Helpers._strtoseq_tolerant(lhs_expanded)
         if lerr then return lerr end
 
-        local map_opts = _map_command_opts(parsed.opts, {
+        local map_opts = Helpers._map_command_opts(parsed.opts, {
             raw_lhs = parsed.lhs,
             raw_rhs = parsed.rhs,
             expanded_lhs = lhs_expanded,
@@ -4477,7 +4480,7 @@ function Runtime.new(init_state, init_opts)
         local rhs_seq = nil
         if not parsed.opts.expr then
             local rerr
-            rhs_seq, rerr = _strtoseq_tolerant(rhs_expanded)
+            rhs_seq, rerr = Helpers._strtoseq_tolerant(rhs_expanded)
             if rerr then return rerr end
         else
             map_opts.expr_rhs = rhs_expanded
@@ -5256,7 +5259,7 @@ function Runtime.new(init_state, init_opts)
                 error(Error(471))
             end
 
-            local seq, kerr = _strtoseq_normal_literal(keys_text)
+            local seq, kerr = Helpers._strtoseq_normal_literal(keys_text)
             if kerr then
                 error(kerr)
             end
@@ -5495,7 +5498,7 @@ function Runtime.new(init_state, init_opts)
             need_redraw = true
             return true
         elseif cmd == "redir" then
-            local spec, perr = _parse_redir_spec(argstr)
+            local spec, perr = Helpers._parse_redir_spec(argstr)
             if perr then error(perr) end
 
             local ok_end, end_err = ExMsg.EndRedir()
@@ -5525,9 +5528,9 @@ function Runtime.new(init_state, init_opts)
                     return true
                 end
             elseif spec.kind == "register" then
-                local key = _redir_register_key(spec.reg)
+                local key = Helpers._redir_register_key(spec.reg)
                 on_close = function(text)
-                    local base = spec.append and _redir_register_text(spec.reg) or ""
+                    local base = spec.append and Helpers._redir_register_text(spec.reg) or ""
                     registers[key] = { "charwise", base .. text }
                     return true
                 end
@@ -5587,10 +5590,10 @@ function Runtime.new(init_state, init_opts)
         elseif cmd == "colorscheme" then
             local name = strip(argstr)
             if name == "" then
-                ExMsg.echo(_current_colorscheme_name())
+                ExMsg.echo(Helpers._current_colorscheme_name())
                 return true
             end
-            return _load_colorscheme(name)
+            return Helpers._load_colorscheme(name)
         elseif cmd == "packadd" then
             local name = strip(argstr)
             if name == "" then error(Error(471)) end
@@ -5646,7 +5649,7 @@ function Runtime.new(init_state, init_opts)
             local win = windows[curwin]
             local remove_name = (cmdctx.line1 == 0 and cmdctx.line2 == 0) and target == ""
             if target == "" and not remove_name then
-                ExMsg.echo(_file_status_message(win, bang))
+                ExMsg.echo(Helpers._file_status_message(win, bang))
                 return true
             end
             local oldname = win.buffer.name
@@ -5659,15 +5662,15 @@ function Runtime.new(init_state, init_opts)
                 end
                 win.buffer.name = target
             end
-            ExMsg.echo(_file_status_message(win, bang))
+            ExMsg.echo(Helpers._file_status_message(win, bang))
             win:mark_redraw()
             return true
         elseif cmd == "delete" then
             local win = windows[curwin]
             local buf = win.buffer
-            local reg, explicit_reg, count, perr = _parse_delete_args(argstr)
+            local reg, explicit_reg, count, perr = Helpers._parse_delete_args(argstr)
             if perr then error(perr) end
-            local post_mode = _delete_suffix_mode(cmdctx.raw_cmd)
+            local post_mode = Helpers._delete_suffix_mode(cmdctx.raw_cmd)
             local line1 = cmdctx.line1 or win.cursory
             local line2 = cmdctx.line2 or line1
             if count then
@@ -5686,7 +5689,7 @@ function Runtime.new(init_state, init_opts)
                 removed[#removed + 1] = buf:get_line(i, true) or ""
             end
             buf:set_lines(line1 - 1, line2, false, {})
-            _store_deleted_lines(reg, explicit_reg, removed)
+            Helpers._store_deleted_lines(reg, explicit_reg, removed)
 
             local target_line = line1
             if target_line > buf:line_count(true) then
@@ -5697,9 +5700,9 @@ function Runtime.new(init_state, init_opts)
             end
             win:cursorSet(win.cursorx, target_line)
             if post_mode == "print" then
-                ExMsg.echo(_delete_print_text(buf:get_line(target_line, true) or "") .. "\n")
+                ExMsg.echo(Helpers._delete_print_text(buf:get_line(target_line, true) or "") .. "\n")
             elseif post_mode == "list" then
-                ExMsg.echo(_delete_list_text(buf:get_line(target_line, true) or "") .. "\n")
+                ExMsg.echo(Helpers._delete_list_text(buf:get_line(target_line, true) or "") .. "\n")
             end
             win:mark_redraw()
             return true
@@ -5724,7 +5727,7 @@ function Runtime.new(init_state, init_opts)
         elseif cmd == "copy" or cmd == "t" then
             local win = windows[curwin]
             local buf = win.buffer
-            local target, terr = _parse_copy_move_target(argstr, win)
+            local target, terr = Helpers._parse_copy_move_target(argstr, win)
             if terr then error(terr) end
 
             local line1 = cmdctx.line1 or win.cursory
@@ -5752,7 +5755,7 @@ function Runtime.new(init_state, init_opts)
         elseif cmd == "move" then
             local win = windows[curwin]
             local buf = win.buffer
-            local target, terr = _parse_copy_move_target(argstr, win)
+            local target, terr = Helpers._parse_copy_move_target(argstr, win)
             if terr then error(terr) end
 
             local line1 = cmdctx.line1 or win.cursory
@@ -5807,7 +5810,7 @@ function Runtime.new(init_state, init_opts)
             Window.SwitchBuffer(win, newbuf, { skip_enter = true })
 
             local ff = Options.get("fileformat", win, newbuf)
-            local ffs = _csv_first(Options.get("fileformats", win, curbuf))
+            local ffs = Helpers._csv_first(Options.get("fileformats", win, curbuf))
             if ffs ~= "" then
                 ff = ffs
             end
@@ -5860,7 +5863,7 @@ function Runtime.new(init_state, init_opts)
                 newbuf:Load(true)
             else
                 local ff = Options.get("fileformat", refwin, newbuf)
-                local ffs = _csv_first(Options.get("fileformats", refwin, refwin.buffer))
+                local ffs = Helpers._csv_first(Options.get("fileformats", refwin, refwin.buffer))
                 if ffs ~= "" then
                     ff = ffs
                 end
@@ -5878,21 +5881,21 @@ function Runtime.new(init_state, init_opts)
             need_redraw = true
             return true
         elseif cmd == "tabnext" then
-            local target, err = _tab_switch_target(argstr, 1)
+            local target, err = Helpers._tab_switch_target(argstr, 1)
             if not target then error(err) end
-            local ok = _switch_to_tab(target)
+            local ok = Helpers._switch_to_tab(target)
             if ok ~= true then error(ok) end
             return true
         elseif cmd == "tabprevious" then
-            local target, err = _tab_switch_target(argstr, -1)
+            local target, err = Helpers._tab_switch_target(argstr, -1)
             if not target then error(err) end
-            local ok = _switch_to_tab(target)
+            local ok = Helpers._switch_to_tab(target)
             if ok ~= true then error(ok) end
             return true
         elseif cmd == "tabclose" then
             local text = strip(argstr)
             local target = curtp
-            local tabnrs = _sorted_tabnrs()
+            local tabnrs = Helpers._sorted_tabnrs()
             if text ~= "" then
                 if text == "$" then
                     target = tabnrs[#tabnrs]
@@ -6050,7 +6053,7 @@ function Runtime.new(init_state, init_opts)
             local exprs = VimExpr.splitExpressions(argstr)
             for _, expr_str in ipairs(exprs) do
                 local res = _eval_expr_for_cmd(expr_str)
-                results[#results + 1] = _to_string_simple(res)
+                results[#results + 1] = Helpers._to_string_simple(res)
             end
             local line = table.concat(results, " ")
             if cmd == "echo" then ExMsg.echo(line)
@@ -6271,7 +6274,7 @@ function Runtime.new(init_state, init_opts)
             local args = cmdctx and cmdctx.args or split_ws(strip_trailing_comment(argstr))
             local changed = false
             if #args == 0 then
-                _emit_highlight_listing(Highlight.ListNames())
+                Helpers._emit_highlight_listing(Highlight.ListNames())
                 return true
             end
             if args[1] == "clear" then
@@ -6281,7 +6284,7 @@ function Runtime.new(init_state, init_opts)
                 Highlight.Clear(args[1])
                 changed = true
             elseif #args == 1 and Highlight.HasGroup(args[1]) then
-                _emit_highlight_listing({ args[1] })
+                Helpers._emit_highlight_listing({ args[1] })
                 return true
             else
                 local is_default = false
