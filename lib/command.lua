@@ -434,8 +434,6 @@ local function _composite_node(buf_node, glob_node)
     local composite = { children = {} }
     local buf_has_leaf = (buf_node.callback ~= nil) or (buf_node.rhs_seq ~= nil) or (buf_node.expr_rhs ~= nil)
         or (buf_node.operator_cb ~= nil) or (buf_node.motion_root ~= nil)
-    local glob_has_leaf = (glob_node.callback ~= nil) or (glob_node.rhs_seq ~= nil) or (glob_node.expr_rhs ~= nil)
-        or (glob_node.operator_cb ~= nil) or (glob_node.motion_root ~= nil)
 
     if buf_has_leaf then
         composite.callback    = buf_node.callback
@@ -461,16 +459,14 @@ local function _composite_node(buf_node, glob_node)
         composite.select_as_visual = glob_node.select_as_visual
     end
 
+    -- A leaf in the higher-priority layer shadows the lower layer's longer
+    -- mappings. A leaf only in the lower layer must not hide the higher
+    -- layer's children (e.g. user "<Space>x" over builtin <Space>), so
+    -- that case falls through to the union below.
     local keys = {}
     if buf_has_leaf then
         if buf_node.children then
             for k in pairs(buf_node.children) do
-                keys[k] = true
-            end
-        end
-    elseif glob_has_leaf then
-        if glob_node.children then
-            for k in pairs(glob_node.children) do
                 keys[k] = true
             end
         end
@@ -1323,7 +1319,7 @@ local function execute_node_inner(node)
         cancel_ambiguous_timer()
         reset_mapping_only()
         _with_undo_block(function()
-            Command._feed_seq_with_policy(rhs, node.recursive and POLICY_FULL or POLICY_CB_ONLY)
+            Command._feed_seq_with_policy(rhs, node.recursive and POLICY_FULL or POLICY_NOREMAP)
         end)
         return
     end

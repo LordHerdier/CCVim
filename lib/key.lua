@@ -718,6 +718,21 @@ function Key.strtoseq(str)
                 if content == "" or content:match("^%s+$") then
                     push_char(seq, "<")
                     i = i + 1
+                elseif content:lower() == "nop" then
+                    -- <Nop> produces no keys (an empty mapping rhs).
+                    i = j + 1
+                elseif content:lower() == "leader" or content:lower() == "localleader" then
+                    -- Expanded when the mapping is defined, like Vim.
+                    local Scopes = loadModule("lib.luaapi.scopes")
+                    local var = content:lower() == "leader" and "mapleader" or "maplocalleader"
+                    local leader = Scopes._g[var]
+                    if type(leader) ~= "string" or leader == "" then
+                        leader = "\\"
+                    end
+                    for _, lk in ipairs(Key.strtoseq((leader:gsub("<", "<lt>")))) do
+                        seq[#seq + 1] = lk
+                    end
+                    i = j + 1
                 else
                     push_angle(seq, content)
                     i = j + 1
