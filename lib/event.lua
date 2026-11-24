@@ -17,6 +17,7 @@ local Menu = loadModule("lib.menu")
 local PopupMenu = loadModule("lib.popupmenu")
 local Runtime = loadModule("lib.excmd.runtime")
 local Api = loadModule("lib.luaapi.api")
+local Backend = loadModule("lib.backend")
 
 function Event.ExecuteCommand(command, origin)
     local ok, err = Runtime.run(tostring(command or ""), {
@@ -681,9 +682,37 @@ local function handle_mouse_scroll(direction, x, y)
     need_redraw = true
 end
 
+-- CC:Tweaked `key` events carry physical (US-QWERTY-named) key codes and
+-- ignore the OS keyboard layout, so 'kblayout' remaps them here. Each table
+-- maps the physical key to the key that layout would produce. The native
+-- backend builds key codes from already-translated terminal input, so it
+-- is never remapped.
+local semicolon = keys.semiColon or keys.semicolon
+local kb_layouts = {
+    qwerty = {},
+    colemak = {
+        [keys.e] = keys.f, [keys.r] = keys.p, [keys.t] = keys.g,
+        [keys.y] = keys.j, [keys.u] = keys.l, [keys.i] = keys.u,
+        [keys.o] = keys.y, [keys.p] = semicolon,
+        [keys.s] = keys.r, [keys.d] = keys.s, [keys.f] = keys.t,
+        [keys.g] = keys.d, [keys.j] = keys.n, [keys.k] = keys.e,
+        [keys.l] = keys.i, [semicolon] = keys.o,
+        [keys.n] = keys.k,
+    },
+}
+Event.kb_layouts = kb_layouts
+
+local function apply_kb_layout(k)
+    if Backend.current().kind ~= "cc" then
+        return k
+    end
+    local layout = kb_layouts[options.get("kblayout")]
+    return layout and layout[k] or k
+end
+
 function Event.ProcessEvent(ev)
     if ev[1] == "key" then
-        local k = ev[2]
+        local k = apply_kb_layout(ev[2])
 
         if is_modifier(k) then
             mods_down[k] = true

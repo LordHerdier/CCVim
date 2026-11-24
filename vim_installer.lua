@@ -959,7 +959,7 @@ local function runInstall()
         if v then
             done = done + 1
             TUI.addMessage(installerBox, ("[%d/%d] %s"):format(done, keymapcnt, k))
-            ok, err = downloadFile("runtime/keymaps/" .. k)
+            ok, err = downloadFile("runtime/keymap/" .. k)
             if not ok then
                 return failure(err)
             end

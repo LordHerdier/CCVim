@@ -82,6 +82,7 @@ local opt_defs = {
     indentkeys    = {"ltb", "0{,0},0),0],:,0#,!^F,o,O,e", "string"},
     insertmode    = {"ggg", false,   "boolean"},
     iskeyword     = {"ltb", "@,48-57,_,192-255", "string"},
+    kblayout      = {"ggg", "qwerty", "string"},
     keymodel      = {"ggg", "",      "string"},
     keywordprg    = {"gob", ":Man",  "string"},
     lazyredraw    = {"ggg", false,   "boolean"},
@@ -272,6 +273,14 @@ local function _normalize_option_value(name, value, source_expr)
             if not allowed[ch] then
                 error(Error(539, ch, source_expr))
             end
+        end
+        return v
+    end
+
+    if name == "kblayout" and type(value) == "string" then
+        local v = tostring(value):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+        if v ~= "qwerty" and v ~= "colemak" then
+            error(Error(474, "Invalid value for 'kblayout': " .. tostring(value)))
         end
         return v
     end
